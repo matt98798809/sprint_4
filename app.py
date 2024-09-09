@@ -3,6 +3,7 @@ import pandas as pd
 import plotly.express as px 
 import numpy as np
 import altair 
+import statsmodels
 
 cars = pd.read_csv('vehicles_us.csv')
 
