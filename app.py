@@ -2,23 +2,13 @@ import streamlit as st
 import pandas as pd 
 import plotly.express as px 
 import numpy as np
+import matplotlib as plt
 import altair 
-import statsmodels
 
 cars = pd.read_csv('vehicles_us.csv')
 
-cars['is_4wd'] = cars['is_4wd'].fillna(value=0)
-
-cars['paint_color'] = cars['paint_color'].fillna(value='unknown')
-
-avg_odo = cars['odometer'].mean()
-med_odo = cars['odometer'].median()
-
-cars['odometer'] = cars['odometer'].fillna(value=avg_odo)
-cars['odometer'] = cars['odometer'].round(0)
-
-cars = cars.dropna().reset_index()
-
+# Getting the first word from model to get manufacturer
+cars = pd.read_csv('vehicles_us.csv')
 cars['manufacturer'] = cars['model'].apply(lambda x:x.split()[0])
 
 # Categorizing Days Listed
@@ -33,7 +23,11 @@ def listed_category(days):
     else:
         return 'Very Poor'
     
-cars['listing_category'] = cars['days_listed'].apply(listed_category)  
+cars['listing_category'] = cars['days_listed'].apply(listed_category)   
+
+# Filling in the missing values for cylinders and odometer based on model and model year
+cars['cylinders_new'] = cars.groupby(['model', 'model_year'])['cylinders'].transform(lambda x: np.ceil(x.fillna(x.median())))
+cars['odometer_new'] = cars.groupby(['model','model_year'])['odometer'].transform(lambda x:  x.fillna(x.median()))
 
 # Categorizing Odometer
 def odometer_category(reading):
@@ -47,11 +41,20 @@ def odometer_category(reading):
     else:
         return 'Very Poor'
     
-cars['odometer_category'] = cars['odometer'].apply(odometer_category)
+cars['odometer_category'] = cars['odometer_new'].apply(odometer_category)  
+
+# Replacing NaN with 0
+cars['is_4wd'] = cars['is_4wd'].fillna(value=0)
+
+# Dropping missing values with model_year and and remaining missing values for cylinders_new
+cars = cars.dropna(subset=['model_year','cylinders_new'])
 
 
 # Define your color sequence
 color_seq = px.colors.qualitative.Plotly
+
+# Will be used to sort graph by frequency instead of manufacturer
+manufacturer_counts = cars['manufacturer'].value_counts()
 
 st.header('Data viewer')
 show_data = st.checkbox('Show Data Table')
@@ -70,22 +73,12 @@ stacked_bar = px.bar(cars,
                     height=500,
                     category_orders={'manufacturer': manufacturer_counts.index.tolist()})
 stacked_bar.update_layout(barmode='stack')
-stacked_bar.update_layout(width=800, height=600)
+stacked_bar.update_layout(width=1000, height=1000)
 st.plotly_chart(stacked_bar)
 
 st.header('Distribution of Vehicle Cost')
 
-# Create a multiselect dropdown for the user to select two manufacturers
-selected_paint = st.multiselect(
-    'Select Paint Color',
-    options=cars['paint_color'].unique(),
-    default=cars['paint_color'].unique()[:2],  # Pre-select the first 2 manufacturers
-    max_selections=3
-)
-
-# Filter the DataFrame based on the selected manufacturers
-paint = cars[cars['paint_color'].isin(selected_paint)]
-price_hist = px.histogram(paint,
+price_hist = px.histogram(cars,
                         x='price',
                         nbins=20,
                         title='Distribution of Vehicle Costs',
@@ -94,20 +87,20 @@ price_hist = px.histogram(paint,
                                 'count': 'Number of Vehicles'},
                         color_discrete_sequence=['#000080'])
 price_hist.update_layout(bargap=.2) 
-price_hist.update_layout(width=800, height=600)
+price_hist.update_layout(width=1000, height=1000)
 st.plotly_chart(price_hist)
 
 st.header('Odometer Reading by Manfucturer')
 mfr_scat = px.scatter(cars,
-                x='odometer',
-                y='manufacturer',
+                x='days_listed',
+                y='price',
                 color='listing_category',
-                title='Odometer Reading by Manufacturer',
-                labels={'odometer': 'Odometer (Miles)',
-                        'manufacturer': 'Manufacturer'},
-                category_orders={'listing_category': ['Good', 'Fair', 'Poor', 'Very Poor']},
-                color_discrete_sequence=color_seq)
-mfr_scat.update_layout(width=800, height=600)
+                title='Days on Market by Price and Transmission Type',
+                labels={'odometer_new': 'Odometer (Miles)',
+                        'price': 'Price (dollars)'},
+                color_discrete_sequence=color_seq,
+                category_orders={'listing_category': ['Good', 'Fair', 'Poor', 'Very Poor']})
+mfr_scat.update_layout(width=1000, height=1000)
 st.plotly_chart(mfr_scat)
 
 st.header('Vehicle Condition Over Time')
@@ -130,14 +123,14 @@ type_histogram = px.histogram(filtered_year,
                             category_orders={'condition': ['new','like new', 'excellent', 'good', 'fair', 'salvage']},
                             title='Condition of Vehicles by Year')
 type_histogram.update_layout(bargap=.2) 
-type_histogram.update_layout(width=800, height=600)
+type_histogram.update_layout(width=1000, height=1000)
 st.plotly_chart(type_histogram)
 
 st.header('Price Distribution Between Manufacturers')
 
 # Create a multiselect dropdown for the user to select two manufacturers
 selected_manufacturers = st.multiselect(
-    'Select up to 2 manufacturers',
+    'Select up to 5 manufacturers',
     options=cars['manufacturer'].unique(),
     default=cars['manufacturer'].unique()[:2],  # Pre-select the first 2 manufacturers
     max_selections=5
@@ -152,44 +145,46 @@ price_compare = px.histogram(filtered_cars,
                             title='Price Distribution Between Manufacturers',
                             height=600)
 price_compare.update_layout(bargap=.2) 
-price_compare.update_layout(width=800, height=600)
+price_compare.update_layout(width=1000, height=1000)
 st.plotly_chart(price_compare)
 
-st.header('Odometer Reading by Number of Days Listed')
-odo_list = px.scatter(cars,
-                    x='days_listed',
-                    y='odometer',
-                    color='condition',
-                    title='Odometer Reading by Number of Listing Days',
-                    labels={'odometer': 'Odometer (Miles)',
-                            'days_listed': 'Number of Days on Market'},
-                    category_orders={'condition': ['new', 'like new', 'excellent', 'good', 'fair', 'salvage']},
-                    color_discrete_sequence=color_seq)
-odo_list.update_layout(width=800, height=600)
+st.header('Listing Days Based on Odometer Reading and Cylinders')
+odo_list = px.histogram(cars,
+                        x='days_listed',
+                        y='price',
+                        color='cylinders_new',
+                        title='Listing Days Based on Odometer Reading and Cylinders',
+                        labels={'odometer': 'Odometer (Miles)',
+                                'days_listed': 'Number of Days on Market'},
+                        color_discrete_sequence=color_seq,
+                        category_orders={'cylinders_new': sorted(cars['cylinders_new'].unique(), key=int)})
+odo_list.update_layout(width=1000, height=1000)
 st.plotly_chart(odo_list)
 
-st.header('Odometer Reading by Number of Days Listed')
+st.header('Odometer Reading for Vehicle Fuel Types Over Time')
 over_time = px.scatter(cars,
-                    x='days_listed',
-                    y='price',
-                    size='odometer',
-                    color='fuel',
+                    x='odometer_new',
+                    y='model_year',
+                    size='price',
+                    color='transmission',
                     facet_col='fuel',
                     color_discrete_sequence=color_seq,
-                    size_max=35)
-over_time.update_layout(width=800, height=600)
+                    size_max=35,
+                    title='Odometer Reading for Vehicle Fuel Types Over Time')
+over_time.update_layout(width=1000, height=1000)
 st.plotly_chart(over_time)
 
 st.header('Trendlines and Marginal Distribution between Odometer Reading and Price')
 scatter = px.scatter(cars,
                     x='price',
-                    y='odometer',
+                    y='odometer_new',
                     color='condition',
                     trendline='ols',
-                    marginal_x='histogram',
-                    marginal_y='box',
+                    marginal_x='violin',
+                    marginal_y='histogram',
                     color_discrete_sequence=color_seq,
-                    title='Trendlines and Marginal Distribution between Odometer Reading and Price')
+                    title='Trendlines and Marginal Distribution between Odometer Reading and Price',
+                    height=800)
 scatter.update_yaxes(range=[-100000, 1000000])
-scatter.update_layout(width=800, height=600)
+scatter.update_layout(width=1000, height=1000)
 st.plotly_chart(scatter)
